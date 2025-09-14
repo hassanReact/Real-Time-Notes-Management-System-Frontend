@@ -1,7 +1,9 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { useToast } from "@/hooks/use-toast"
+import { io, type Socket } from "socket.io-client"
+import { toast } from "sonner"
+import { useAuth } from "@/hooks/use-auth"
 
 interface RealTimeContextType {
   isConnected: boolean
@@ -45,121 +47,109 @@ interface RealTimeProviderProps {
 
 export function RealTimeProvider({ children }: RealTimeProviderProps) {
   const [isConnected, setIsConnected] = useState(false)
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([])
+  const [onlineUsers, _setOnlineUsers] = useState<OnlineUser[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
-  const [socket, setSocket] = useState<WebSocket | null>(null)
-  const { toast } = useToast()
+  const [socket, setSocket] = useState<Socket | null>(null)
+  const { token } = useAuth()
 
   useEffect(() => {
-    // Simulate WebSocket connection
-    const mockSocket = {
-      send: (data: string) => {
-        console.log("[v0] Mock WebSocket send:", data)
-      },
-      close: () => {
-        console.log("[v0] Mock WebSocket closed")
-      },
-    } as WebSocket
+    if (!token) return
 
-    setSocket(mockSocket)
-    setIsConnected(true)
+    // Connect to Socket.IO server
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:7200/notifications'
+    
+    console.log("[RealTime] Connecting to:", wsUrl)
+    
+    const realSocket = io(wsUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      timeout: 20000,
+    })
+    
+    realSocket.on("connect", () => {
+      console.log("[RealTime] Socket.IO connected")
+      setSocket(realSocket)
+      setIsConnected(true)
+    })
+    
+    realSocket.on("disconnect", (reason) => {
+      console.log("[RealTime] Socket.IO disconnected:", reason)
+      setIsConnected(false)
+    })
+    
+    realSocket.on("connect_error", (error) => {
+      console.error("[RealTime] Socket.IO error:", error)
+      setIsConnected(false)
+    })
 
-    // Simulate initial online users
-    setOnlineUsers([
-      {
-        id: "1",
-        name: "Jane Smith",
-        avatar: "/placeholder.svg?height=32&width=32",
-      },
-      {
-        id: "2",
-        name: "Mike Johnson",
-        avatar: "/placeholder.svg?height=32&width=32",
-      },
-    ])
-
-    // Simulate real-time events
-    const interval = setInterval(() => {
-      const events = [
-        {
-          type: "user_joined" as const,
-          user: { id: "3", name: "Sarah Wilson" },
-        },
-        {
-          type: "note_updated" as const,
-          noteId: "1",
-          user: "Jane Smith",
-        },
-        {
-          type: "comment_added" as const,
-          noteId: "1",
-          user: "Mike Johnson",
-        },
-      ]
-
-      const randomEvent = events[Math.floor(Math.random() * events.length)]
-
-      if (randomEvent.type === "user_joined") {
-        setOnlineUsers((prev) => {
-          if (prev.find((u) => u.id === randomEvent.user.id)) return prev
-          return [...prev, randomEvent.user]
-        })
-
-        const notification: Notification = {
-          id: Date.now().toString(),
-          type: "user_joined",
-          message: `${randomEvent.user.name} joined the workspace`,
-          timestamp: new Date(),
-        }
-
-        setNotifications((prev) => [notification, ...prev.slice(0, 9)])
-
-        toast({
-          title: "User joined",
-          description: `${randomEvent.user.name} is now online`,
-        })
-      } else if (randomEvent.type === "note_updated") {
-        const notification: Notification = {
-          id: Date.now().toString(),
-          type: "note_updated",
-          message: `${randomEvent.user} updated a note`,
-          timestamp: new Date(),
-          noteId: randomEvent.noteId,
-        }
-
-        setNotifications((prev) => [notification, ...prev.slice(0, 9)])
-      } else if (randomEvent.type === "comment_added") {
-        const notification: Notification = {
-          id: Date.now().toString(),
-          type: "comment_added",
-          message: `${randomEvent.user} added a comment`,
-          timestamp: new Date(),
-          noteId: randomEvent.noteId,
-        }
-
-        setNotifications((prev) => [notification, ...prev.slice(0, 9)])
+    // Handle real-time events from backend
+    realSocket.on("notification", (data) => {
+      console.log("[RealTime] Notification received:", data)
+      const notification: Notification = {
+        id: Date.now().toString(),
+        type: "note_updated",
+        message: data.message || data.title,
+        timestamp: new Date(),
       }
-    }, 15000) // Every 15 seconds
+      setNotifications((prev) => [notification, ...prev.slice(0, 9)])
+      toast(data.title, {
+        description: data.message,
+      })
+    })
+
+    realSocket.on("note-updated", (data) => {
+      console.log("[RealTime] Note updated:", data)
+      const notification: Notification = {
+        id: Date.now().toString(),
+        type: "note_updated",
+        message: `Note "${data.title || 'Unknown'}" was updated`,
+        timestamp: new Date(),
+        noteId: data.id,
+      }
+      setNotifications((prev) => [notification, ...prev.slice(0, 9)])
+    })
+
+    realSocket.on("system-message", (data) => {
+      console.log("[RealTime] System message:", data)
+      const notification: Notification = {
+        id: Date.now().toString(),
+        type: "note_updated",
+        message: data.message,
+        timestamp: new Date(),
+      }
+      setNotifications((prev) => [notification, ...prev.slice(0, 9)])
+      toast.info("System Message", {
+        description: data.message,
+      })
+    })
 
     return () => {
-      clearInterval(interval)
-      mockSocket.close()
+      if (realSocket) {
+        console.log("[RealTime] Cleaning up socket connection")
+        realSocket.disconnect()
+      }
       setIsConnected(false)
     }
-  }, [toast])
+  }, [token])
 
   const sendMessage = (message: any) => {
     if (socket && isConnected) {
-      socket.send(JSON.stringify(message))
+      socket.emit("message", message)
     }
   }
 
   const joinRoom = (roomId: string) => {
-    sendMessage({ type: "join_room", roomId })
+    if (socket && isConnected) {
+      console.log("[RealTime] Joining room:", roomId)
+      socket.emit("join-room", roomId)
+    }
   }
 
   const leaveRoom = (roomId: string) => {
-    sendMessage({ type: "leave_room", roomId })
+    if (socket && isConnected) {
+      console.log("[RealTime] Leaving room:", roomId)
+      socket.emit("leave-room", roomId)
+    }
   }
 
   return (

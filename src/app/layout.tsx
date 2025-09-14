@@ -3,27 +3,14 @@ import type { Metadata } from "next"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
 import { Analytics } from "@vercel/analytics/next"
-import { ThemeProvider } from "@/components/theme-provider"
+import { ThemeProvider } from "next-themes"
 import { RealTimeProvider } from "@/components/real-time-provider"
-import { Toaster } from "@/components/ui/toaster"
 import { Toaster as SonnerToaster } from "sonner"
 import { Suspense } from "react"
-import { Navigation } from "@/components/navigation"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+// import { Navigation } from "@/components/navigation"
 import { AuthProvider } from "@/hooks/use-auth"
+import { QueryProvider } from "@/components/query-provider"
 import "./globals.css"
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      retry: (failureCount, error: any) => {
-        if (error?.status === 401) return false // Don't retry auth errors
-        return failureCount < 3
-      },
-    },
-  },
-})
 
 export const metadata: Metadata = {
   title: "Notes Management System",
@@ -38,18 +25,29 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+        <meta name="theme-color" content="#000000" />
+      </head>
+      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} antialiased`}>
         <Suspense fallback={null}>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-            <QueryClientProvider client={queryClient}>
+            <QueryProvider>
               <AuthProvider>
                 <RealTimeProvider>
-                  <Navigation>{children}</Navigation>
-                  <Toaster />
-                  <SonnerToaster position="top-right" />
+                  <div className="min-h-screen flex flex-col bg-background text-foreground">
+                    {children}
+                  </div>
+                  <SonnerToaster 
+                    position="top-right" 
+                    toastOptions={{
+                      className: 'sm:max-w-[356px]',
+                      style: { maxWidth: 'calc(100vw - 32px)' }
+                    }}
+                  />
                 </RealTimeProvider>
               </AuthProvider>
-            </QueryClientProvider>
+            </QueryProvider>
           </ThemeProvider>
           <Analytics />
         </Suspense>

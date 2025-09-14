@@ -61,11 +61,8 @@ export function CollaborationIndicators({ noteId }: CollaborationIndicatorsProps
   )
 }
 
-interface LiveCursorsProps {
-  noteId: string
-}
 
-export function LiveCursors({ noteId }: LiveCursorsProps) {
+export function LiveCursors() {
   const { onlineUsers } = useRealTime()
   const [cursors, setCursors] = useState<Array<{ userId: string; x: number; y: number; name: string }>>([])
 

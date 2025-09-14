@@ -1,7 +1,7 @@
 import axios, { type AxiosResponse } from "axios"
 import type { AxiosRequestConfig } from "axios"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:7200/api/v1"
 
 // Create axios instance with default config
 const api = axios.create({
@@ -33,19 +33,27 @@ api.interceptors.response.use(
         const refreshToken = localStorage.getItem("refresh_token")
         if (refreshToken) {
           const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-            refresh_token: refreshToken,
+            refreshToken: refreshToken,
           })
 
-          const { access_token } = response.data
-          localStorage.setItem("access_token", access_token)
-
-          return api(originalRequest)
+          // Handle the API response structure
+          const responseData = response.data.data || response.data
+          const { accessToken } = responseData
+          
+          if (accessToken) {
+            localStorage.setItem("access_token", accessToken)
+            // Update the authorization header for the retry
+            originalRequest.headers.Authorization = `Bearer ${accessToken}`
+            return api(originalRequest)
+          }
         }
       } catch (refreshError) {
+        console.error("Token refresh failed:", refreshError)
         // Refresh failed, redirect to login
         localStorage.removeItem("access_token")
         localStorage.removeItem("refresh_token")
-        window.location.href = "/auth/login"
+        localStorage.removeItem("user")
+        window.location.href = "/"
       }
     }
 
@@ -68,6 +76,10 @@ export function PATCH<T = any>(url: string, data?: any, config?: AxiosRequestCon
 
 export function DELETE<T = any>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
   return api.delete(url, config)
+}
+
+export function PUT<T = any>(url: string, data?: any, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
+  return api.put(url, data, config)
 }
 
 export default api

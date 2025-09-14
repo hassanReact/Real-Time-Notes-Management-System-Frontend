@@ -37,16 +37,16 @@ import {
   Trash2,
   Clock,
   Tag,
-  StarOff,
   User,
   Users,
   Lock,
   Globe,
 } from "lucide-react"
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from "@/hooks/use-notes"
-import { useAuth } from "@/hooks/use-auth"
+import { useSocket } from "@/hooks/use-socket"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { useEffect } from "react"
 import type { Note } from "@/lib/types"
 
 export function NotesPage() {
@@ -54,9 +54,9 @@ export function NotesPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedFilter, setSelectedFilter] = useState("all")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [newNote, setNewNote] = useState({ title: "", content: "", tags: "" })
+  const [newNote, setNewNote] = useState({ title: "", description: "", tags: "" })
 
-  const { user } = useAuth()
+  const { connected, error: socketError } = useSocket()
   const router = useRouter()
 
   // Build query parameters based on filters
@@ -74,12 +74,22 @@ export function NotesPage() {
 
   const { data: notesData, isLoading, error } = useNotes(queryParams)
   const createNoteMutation = useCreateNote()
-  const updateNoteMutation = useUpdateNote()
   const deleteNoteMutation = useDeleteNote()
 
-  const notes = notesData?.data?.notes || []
+  // Access notes from the correct API response structure
+  const notes: any[] = notesData?.data?.data?.data ? (notesData.data.data.data as unknown as any[]) : []
+  // Listen for real-time note updates
+  useEffect(() => {
+    const handleNoteUpdate = () => {
+      // Refetch notes when a note is updated
+      window.location.reload() // Simple refresh for now
+    }
 
-  const filteredNotes = notes.filter((note) => {
+    window.addEventListener("note-updated", handleNoteUpdate)
+    return () => window.removeEventListener("note-updated", handleNoteUpdate)
+  }, [])
+
+  const filteredNotes = notes.filter(() => {
     if (selectedFilter === "favorites") {
       // For now, we'll use a client-side favorite check since backend doesn't have favorites
       // In a real app, you'd add a favorites field to the backend
@@ -97,7 +107,7 @@ export function NotesPage() {
     try {
       await createNoteMutation.mutateAsync({
         title: newNote.title,
-        content: newNote.content,
+        description: newNote.description,
         tags: newNote.tags
           .split(",")
           .map((tag) => tag.trim())
@@ -105,7 +115,7 @@ export function NotesPage() {
         visibility: "PRIVATE",
       })
 
-      setNewNote({ title: "", content: "", tags: "" })
+      setNewNote({ title: "", description: "", tags: "" })
       setIsCreateDialogOpen(false)
       toast.success("Note created successfully!")
     } catch (error: any) {
@@ -116,9 +126,6 @@ export function NotesPage() {
     }
   }
 
-  const toggleFavorite = (noteId: string) => {
-    toast.info("Favorites feature coming soon!")
-  }
 
   const deleteNote = async (noteId: string) => {
     try {
@@ -188,7 +195,20 @@ export function NotesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-balance">My Notes</h1>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-3xl font-bold text-balance">My Notes</h1>
+            {/* Real-time status indicator */}
+            <div className="flex items-center gap-2">
+              <div
+                className={`h-2 w-2 rounded-full ${
+                  connected ? "bg-green-500" : socketError ? "bg-red-500" : "bg-yellow-500"
+                }`}
+              />
+              <span className="text-xs text-muted-foreground">
+                {connected ? "Live" : socketError ? "Offline" : "Connecting..."}
+              </span>
+            </div>
+          </div>
           <p className="text-muted-foreground">
             {isLoading ? "Loading..." : `${filteredNotes.length} of ${notes.length} notes`}
           </p>
@@ -222,8 +242,8 @@ export function NotesPage() {
                   id="content"
                   placeholder="Start writing your note..."
                   rows={4}
-                  value={newNote.content}
-                  onChange={(e) => setNewNote({ ...newNote, content: e.target.value })}
+                  value={newNote.description}
+                  onChange={(e) => setNewNote({ ...newNote, description: e.target.value })}
                 />
               </div>
               <div className="grid gap-2">
@@ -324,7 +344,7 @@ export function NotesPage() {
         </Card>
       ) : !isLoading ? (
         <div className={viewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" : "space-y-4"}>
-          {filteredNotes.map((note) => (
+          {filteredNotes.map((note: any) => (
             <Card
               key={note.id}
               className={`group hover:shadow-md transition-all duration-200 cursor-pointer ${
@@ -341,29 +361,13 @@ export function NotesPage() {
                     <div className="flex items-center gap-2 mt-2">
                       <div className={`flex items-center gap-1 text-xs ${getVisibilityColor(note.visibility)}`}>
                         {getVisibilityIcon(note.visibility)}
-                        <span className="capitalize">{note.visibility.toLowerCase()}</span>
+                        <span className="capitalize">{note.visibility?.toLowerCase()}</span>
                       </div>
-                      {note.sharedWith && note.sharedWith.length > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          <Users className="h-3 w-3 mr-1" />
-                          {note.sharedWith.length}
-                        </Badge>
-                      )}
+                      {/* The new API does not have sharedWith, so skip this */}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleFavorite(note.id)
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <StarOff className="h-4 w-4" />
-                    </Button>
 
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -404,11 +408,13 @@ export function NotesPage() {
               </CardHeader>
 
               <CardContent className={viewMode === "list" ? "pt-0" : ""}>
-                <p className="text-sm text-muted-foreground line-clamp-3 mb-4">{note.content.substring(0, 150)}...</p>
+                <p className="text-sm text-muted-foreground line-clamp-3 mb-4">
+                  {note.description ? note.description.substring(0, 150) + "..." : ""}
+                </p>
 
                 {note.tags && note.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-4">
-                    {note.tags.slice(0, 3).map((tag) => (
+                    {note.tags.slice(0, 3).map((tag: string) => (
                       <Badge key={tag} variant="outline" className="text-xs">
                         <Tag className="h-3 w-3 mr-1" />
                         {tag}
@@ -429,7 +435,7 @@ export function NotesPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <User className="h-3 w-3" />
-                    {note.author?.name || note.author?.username || "Unknown"}
+                    {note.author?.name || "Unknown"}
                   </div>
                 </div>
               </CardContent>

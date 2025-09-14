@@ -190,7 +190,9 @@ export function LandingPage() {
                     <Star key={i} className="h-4 w-4 fill-primary text-primary" />
                   ))}
                 </div>
-                <CardDescription className="text-sm leading-relaxed">"{testimonial.content}"</CardDescription>
+                <CardDescription className="text-sm leading-relaxed">
+                  &quot;{testimonial.content}&quot;
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div>

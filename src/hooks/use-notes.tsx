@@ -36,7 +36,7 @@ export function useUpdateNote() {
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateNoteData }) => notesService.updateNote(id, data),
-    onSuccess: (_, { id }) => {
+    onSuccess: (_: any, { id }: { id: string; data: UpdateNoteData }) => {
       queryClient.invalidateQueries({ queryKey: ["notes"] })
       queryClient.invalidateQueries({ queryKey: ["note", id] })
     },
@@ -61,3 +61,23 @@ export function useNoteVersions(id: string) {
     enabled: !!id,
   })
 }
+
+export function useGetUsers(name: string) {
+  return useQuery({
+    queryKey: ["name", name],
+    queryFn: () => notesService.getAllUsers(name),
+    enabled: !!name
+  })
+}
+
+export function shareNotesToUsers(noteId: string, userIds: string[]) {
+
+  const queryClient = useQueryClient()
+  return useMutation({
+
+    mutationFn: (file: File) => notesService.shareNote(noteId, userIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user", "profile"] })
+    },
+  })
+} 
